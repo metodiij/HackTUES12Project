@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="bg">
+<head>
+<meta charset="UTF-8">
+<title>Robot Path Planner</title>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+
+<style>
+body {
+  margin: 0;
+  font-family: Arial, sans-serif;
+}
+
+#map {
+  height: 90vh;
+}
+
+.toolbar {
+  height: 10vh;
+  background: #222;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 15px;
+}
+
+button {
+  padding: 10px 15px;
+  font-size: 16px;
+  border: none;
+  cursor: pointer;
+  border-radius: 8px;
+}
+
+#drawBtn { background: #4CAF50; color: white; }
+#eraseBtn { background: #f44336; color: white; }
+#sendBtn { background: #2196F3; color: white; }
+</style>
+</head>
+
+<body>
+
+<div class="toolbar">
+  <button id="drawBtn">✏️ Молив</button>
+  <button id="eraseBtn">🧽 Гумичка</button>
+  <button id="sendBtn">📤 Изпрати</button>
+</div>
+
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+<script>
+
+function calculateArea(points) {
+  if (points.length < 3) return 0;
+
+  let area = 0;
+  let closedPoints = [...points];
+
+    if (closedPoints.length > 2) {
+        closedPoints.push(closedPoints[0]);
+    }
+
+  for (let i = 0; i < closedPoints.lengt - 1; i++) {
+    let j = (i + 1) % points.length;
+
+    area += closedPoints[i].lng * closedPoints[j].lat;
+    area -= closedPoints[i + 1].lng * closedPoints[i].lat;
+  }
+
+  return Math.abs(area / 2) * 111139 * 111139;
+}
+const map = L.map('map').setView([42.6977, 23.3219], 19);
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 22,
+}).addTo(map);
+
+let mode = "draw";
+let points = [];
+let lines = [];
+let lastPoint = null;
+
+document.getElementById("drawBtn").onclick = () => mode = "draw";
+document.getElementById("eraseBtn").onclick = () => mode = "erase";
+
+document.getElementById("sendBtn").onclick = () => {
+    const area = calculateArea(points);
+    if (area > 10000) {
+        alert("Маршрутът е твърде голям! Максимум 10 декара.");
+        return;
+}
+  console.log("Изпращам:", points);
+
+  fetch("http://localhost:3000/save-path", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(points)
+  })
+  .then(res => res.text())
+  .then(data => alert("Запазено!"))
+  .catch(err => alert("Грешка при изпращане"));
+};
+
+map.on("click", function(e) {
+
+  if (mode === "draw") {
+    addPoint(e.latlng);
+  }
+
+  if (mode === "erase") {
+    clearAll();
+  }
+
+});
+
+function addPoint(latlng) {
+
+  if (!lastPoint) {
+    lastPoint = latlng;
+    points.push(latlng);
+    return;
+  }
+
+  const middlePoint = {
+    lat: lastPoint.lat,
+    lng: latlng.lng
+  };
+
+  const segment1 = L.polyline([lastPoint, middlePoint], {color: 'red'}).addTo(map);
+  const segment2 = L.polyline([middlePoint, latlng], {color: 'red'}).addTo(map);
+
+  lines.push(segment1, segment2);
+
+  points.push(middlePoint);
+  points.push(latlng);
+
+  lastPoint = latlng;
+}
+
+function clearAll() {
+  lines.forEach(line => map.removeLayer(line));
+  lines = [];
+  points = [];
+  lastPoint = null;
+}
+
+</script>
+
+</body>
+</html>
