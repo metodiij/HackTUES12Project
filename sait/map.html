@@ -1,3 +1,6 @@
+
+
+
 <!DOCTYPE html>
 <html lang="bg">
 <head>
@@ -31,18 +34,29 @@ button {
   border: none;
   cursor: pointer;
   border-radius: 8px;
+  transition: 0.3s;
+  color: white;
 }
 
-#drawBtn { background: #4CAF50; color: white; }
-#eraseBtn { background: #f44336; color: white; }
-#sendBtn { background: #2196F3; color: white; }
+#drawBtn { background: #4CAF50; }
+#eraseBtn { background: #f44336; }
+#sendBtn { background: #2196F3; }
+
+button:hover { opacity: 0.8; }
+
+
+button.active { 
+    outline: 3px solid white; 
+    box-shadow: 0 0 15px rgba(255, 255, 255, 0.6);
+    transform: scale(1.05);
+}
 </style>
 </head>
 
 <body>
 
 <div class="toolbar">
-  <button id="drawBtn">✏️ Молив</button>
+  <button id="drawBtn" class="active">✏️ Молив</button>
   <button id="eraseBtn">🧽 Гумичка</button>
   <button id="sendBtn">📤 Изпрати</button>
 </div>
@@ -53,97 +67,135 @@ button {
 
 <script>
 
-function calculateArea(points) {
-  if (points.length < 3) return 0;
-
-  let area = 0;
-  let closedPoints = [...points];
-
-    if (closedPoints.length > 2) {
-        closedPoints.push(closedPoints[0]);
-    }
-
-  for (let i = 0; i < closedPoints.lengt - 1; i++) {
-    let j = (i + 1) % points.length;
-
-    area += closedPoints[i].lng * closedPoints[j].lat;
-    area -= closedPoints[i + 1].lng * closedPoints[i].lat;
-  }
-
-  return Math.abs(area / 2) * 111139 * 111139;
-}
-const map = L.map('map').setView([42.6977, 23.3219], 19);
+const map = L.map('map').setView([42.6977, 23.3219], 16);
 
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
   maxZoom: 22,
 }).addTo(map);
+
+
+map.locate({setView: true, maxZoom: 18});
+
+function onLocationFound(e) {
+    
+    L.circle(e.latlng, { radius: 10, color: 'blue', fillOpacity: 0.5 }).addTo(map)
+      .bindPopup("Ти си тук").openPopup();
+}
+
+function onLocationError(e) {
+    alert("Не можахме да открием локацията ви: " + e.message);
+}
+
+map.on('locationfound', onLocationFound);
+map.on('locationerror', onLocationError);
+
 
 let mode = "draw";
 let points = [];
 let lines = [];
 let lastPoint = null;
 
-document.getElementById("drawBtn").onclick = () => mode = "draw";
-document.getElementById("eraseBtn").onclick = () => mode = "erase";
 
-document.getElementById("sendBtn").onclick = () => {
-    const area = calculateArea(points);
-    if (area > 10000) {
-        alert("Маршрутът е твърде голям! Максимум 10 декара.");
-        return;
+
+function calculateTotalDistance(points) {
+  if (points.length < 2) return 0;
+  let total = 0;
+  for (let i = 0; i < points.length - 1; i++) {
+    const p1 = L.latLng(points[i].lat, points[i].lng);
+    const p2 = L.latLng(points[i+1].lat, points[i+1].lng);
+    total += p1.distanceTo(p2);
+  }
+  return total; 
 }
-  console.log("Изпращам:", points);
 
-  fetch("http://localhost:3000/save-path", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(points)
-  })
-  .then(res => res.text())
-  .then(data => alert("Запазено!"))
-  .catch(err => alert("Грешка при изпращане"));
+function calculateArea(points) {
+  if (points.length < 3) return 0;
+  let area = 0;
+  let closedPoints = [...points];
+  closedPoints.push(closedPoints[0]);
+  for (let i = 0; i < closedPoints.length - 1; i++) {
+    area += closedPoints[i].lng * closedPoints[i+1].lat;
+    area -= closedPoints[i+1].lng * closedPoints[i].lat;
+  }
+  return Math.abs(area / 2) * 111139 * 111139;
+}
+
+
+
+document.getElementById("drawBtn").onclick = () => {
+    mode = "draw";
+    document.getElementById("drawBtn").classList.add("active");
+    document.getElementById("eraseBtn").classList.remove("active");
 };
 
-map.on("click", function(e) {
+document.getElementById("eraseBtn").onclick = () => {
+    mode = "erase";
+    document.getElementById("eraseBtn").classList.add("active");
+    document.getElementById("drawBtn").classList.remove("active");
+};
 
+document.getElementById("sendBtn").onclick = () => {
+    const totalDistance = calculateTotalDistance(points);
+    const area = calculateArea(points);
+
+    if (totalDistance > 10000) {
+        alert(`Маршрутът е твърде дълъг! ${(totalDistance / 1000).toFixed(2)} км. Максимумът е 10 км.`);
+        return;
+    }
+
+    if (points.length === 0) {
+        alert("Моля, начертайте маршрут първо.");
+        return;
+    }
+
+    alert(`Изпращане на маршрут: ${(totalDistance / 1000).toFixed(2)} км.`);
+    
+    fetch("http://localhost:3000/save-path", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(points)
+    })
+    .then(res => res.text())
+    .then(data => alert("Запазено успешно!"))
+    .catch(err => alert("Грешка при връзка със сървъра."));
+};
+
+
+map.on("click", function(e) {
   if (mode === "draw") {
     addPoint(e.latlng);
-  }
-
-  if (mode === "erase") {
+  } else if (mode === "erase") {
     clearAll();
   }
-
 });
 
 function addPoint(latlng) {
-
   if (!lastPoint) {
     lastPoint = latlng;
-    points.push(latlng);
+    points.push({lat: latlng.lat, lng: latlng.lng});
+    L.circleMarker(latlng, {radius: 5, color: 'green', fillOpacity: 1}).addTo(map);
     return;
   }
 
-  const middlePoint = {
-    lat: lastPoint.lat,
-    lng: latlng.lng
-  };
+  const middlePoint = { lat: lastPoint.lat, lng: latlng.lng };
 
-  const segment1 = L.polyline([lastPoint, middlePoint], {color: 'red'}).addTo(map);
-  const segment2 = L.polyline([middlePoint, latlng], {color: 'red'}).addTo(map);
+  const segment1 = L.polyline([lastPoint, middlePoint], {color: 'red', weight: 4}).addTo(map);
+  const segment2 = L.polyline([middlePoint, latlng], {color: 'red', weight: 4}).addTo(map);
 
   lines.push(segment1, segment2);
-
   points.push(middlePoint);
-  points.push(latlng);
+  points.push({lat: latlng.lat, lng: latlng.lng});
 
   lastPoint = latlng;
 }
 
 function clearAll() {
   lines.forEach(line => map.removeLayer(line));
+  map.eachLayer((layer) => {
+    if (layer instanceof L.Polyline || (layer instanceof L.CircleMarker && layer.options.color !== 'blue')) {
+        map.removeLayer(layer);
+    }
+  });
   lines = [];
   points = [];
   lastPoint = null;
