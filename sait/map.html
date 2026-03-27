@@ -1,207 +1,115 @@
-
-
-
 <!DOCTYPE html>
 <html lang="bg">
 <head>
-<meta charset="UTF-8">
-<title>Robot Path Planner</title>
-
-<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
-
-<style>
-body {
-  margin: 0;
-  font-family: Arial, sans-serif;
-}
-
-#map {
-  height: 90vh;
-}
-
-.toolbar {
-  height: 10vh;
-  background: #222;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 15px;
-}
-
-button {
-  padding: 10px 15px;
-  font-size: 16px;
-  border: none;
-  cursor: pointer;
-  border-radius: 8px;
-  transition: 0.3s;
-  color: white;
-}
-
-#drawBtn { background: #4CAF50; }
-#eraseBtn { background: #f44336; }
-#sendBtn { background: #2196F3; }
-
-button:hover { opacity: 0.8; }
-
-
-button.active { 
-    outline: 3px solid white; 
-    box-shadow: 0 0 15px rgba(255, 255, 255, 0.6);
-    transform: scale(1.05);
-}
-</style>
+    <meta charset="UTF-8">
+    <title>Robot Path Planner</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+    <style>
+        body { margin: 0; font-family: Arial; }
+        #map { height: 85vh; width: 100%; }
+        .toolbar { height: 15vh; background: #222; display: flex; align-items: center; justify-content: center; gap: 20px; color: white; }
+        button { padding: 12px 20px; font-size: 16px; border: none; cursor: pointer; border-radius: 8px; color: white; font-weight: bold; }
+        #drawBtn { background: #4CAF50; }
+        #eraseBtn { background: #f44336; }
+        #sendBtn { background: #2196F3; }
+        .active { outline: 3px solid white; transform: scale(1.05); }
+        #stats { font-size: 14px; color: #aaa; }
+    </style>
 </head>
-
 <body>
 
 <div class="toolbar">
-  <button id="drawBtn" class="active">✏️ Молив</button>
-  <button id="eraseBtn">🧽 Гумичка</button>
-  <button id="sendBtn">📤 Изпрати</button>
+    <div id="stats">Начертани: 0м</div>
+    <button id="drawBtn" class="active">✏️ Молив</button>
+    <button id="eraseBtn">🧽 Изчисти</button>
+    <button id="sendBtn">🚀 СТАРТ РОБОТ</button>
 </div>
 
 <div id="map"></div>
 
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-
 <script>
+    // --- НАСТРОЙКИ ЗА КАЛИБРАЦИЯ (Променете тези стойности спрямо вашия робот) ---
+    const METERS_PER_SECOND = 0.25; // Колко метра изминава робота за 1 секунда
+    const DEGREES_PER_SECOND = 45;   // Колко градуса се завърта робота за 1 секунда
+    // --------------------------------------------------------------------------
 
-const map = L.map('map').setView([42.6977, 23.3219], 16);
+    const map = L.map('map').setView([42.6977, 23.3219], 18);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 22 }).addTo(map);
 
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  maxZoom: 22,
-}).addTo(map);
+    let mode = "draw";
+    let points = [];
+    let lastPoint = null;
+    let currentHeading = 0; // Робота започва сочейки на север (0 градуса)
 
-
-map.locate({setView: true, maxZoom: 18});
-
-function onLocationFound(e) {
-    
-    L.circle(e.latlng, { radius: 10, color: 'blue', fillOpacity: 0.5 }).addTo(map)
-      .bindPopup("Ти си тук").openPopup();
-}
-
-function onLocationError(e) {
-    alert("Не можахме да открием локацията ви: " + e.message);
-}
-
-map.on('locationfound', onLocationFound);
-map.on('locationerror', onLocationError);
-
-
-let mode = "draw";
-let points = [];
-let lines = [];
-let lastPoint = null;
-
-
-
-function calculateTotalDistance(points) {
-  if (points.length < 2) return 0;
-  let total = 0;
-  for (let i = 0; i < points.length - 1; i++) {
-    const p1 = L.latLng(points[i].lat, points[i].lng);
-    const p2 = L.latLng(points[i+1].lat, points[i+1].lng);
-    total += p1.distanceTo(p2);
-  }
-  return total; 
-}
-
-function calculateArea(points) {
-  if (points.length < 3) return 0;
-  let area = 0;
-  let closedPoints = [...points];
-  closedPoints.push(closedPoints[0]);
-  for (let i = 0; i < closedPoints.length - 1; i++) {
-    area += closedPoints[i].lng * closedPoints[i+1].lat;
-    area -= closedPoints[i+1].lng * closedPoints[i].lat;
-  }
-  return Math.abs(area / 2) * 111139 * 111139;
-}
-
-
-
-document.getElementById("drawBtn").onclick = () => {
-    mode = "draw";
-    document.getElementById("drawBtn").classList.add("active");
-    document.getElementById("eraseBtn").classList.remove("active");
-};
-
-document.getElementById("eraseBtn").onclick = () => {
-    mode = "erase";
-    document.getElementById("eraseBtn").classList.add("active");
-    document.getElementById("drawBtn").classList.remove("active");
-};
-
-document.getElementById("sendBtn").onclick = () => {
-    const totalDistance = calculateTotalDistance(points);
-    const area = calculateArea(points);
-
-    if (totalDistance > 10000) {
-        alert(`Маршрутът е твърде дълъг! ${(totalDistance / 1000).toFixed(2)} км. Максимумът е 10 км.`);
-        return;
+    // Изчислява ъгъла между две координати
+    function getBearing(p1, p2) {
+        const lat1 = p1.lat * Math.PI / 180;
+        const lat2 = p2.lat * Math.PI / 180;
+        const lon1 = p1.lng * Math.PI / 180;
+        const lon2 = p2.lng * Math.PI / 180;
+        const y = Math.sin(lon2 - lon1) * Math.cos(lat2);
+        const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(lon2 - lon1);
+        return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
     }
 
-    if (points.length === 0) {
-        alert("Моля, начертайте маршрут първо.");
-        return;
-    }
+    map.on("click", function(e) {
+        if (mode !== "draw") return;
 
-    alert(`Изпращане на маршрут: ${(totalDistance / 1000).toFixed(2)} км.`);
-    
-    fetch("http://localhost:3000/save-path", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(points)
-    })
-    .then(res => res.text())
-    .then(data => alert("Запазено успешно!"))
-    .catch(err => alert("Грешка при връзка със сървъра."));
-};
+        const latlng = e.latlng;
+        if (lastPoint) {
+            const dist = latlng.distanceTo(lastPoint);
+            L.polyline([lastPoint, latlng], {color: 'red', weight: 5}).addTo(map)
+             .bindTooltip(`${dist.toFixed(1)}m`, {permanent: true, direction: 'center'});
+        }
+        
+        L.circleMarker(latlng, {radius: 6, color: 'green', fillOpacity: 1}).addTo(map);
+        points.push(latlng);
+        lastPoint = latlng;
+        document.getElementById('stats').innerText = `Точки: ${points.length}`;
+    });
 
+    document.getElementById("sendBtn").onclick = async () => {
+        if (points.length < 2) return alert("Първо начертайте път!");
 
-map.on("click", function(e) {
-  if (mode === "draw") {
-    addPoint(e.latlng);
-  } else if (mode === "erase") {
-    clearAll();
-  }
-});
+        let commands = [];
+        let tempHeading = currentHeading;
 
-function addPoint(latlng) {
-  if (!lastPoint) {
-    lastPoint = latlng;
-    points.push({lat: latlng.lat, lng: latlng.lng});
-    L.circleMarker(latlng, {radius: 5, color: 'green', fillOpacity: 1}).addTo(map);
-    return;
-  }
+        for (let i = 0; i < points.length - 1; i++) {
+            const p1 = points[i];
+            const p2 = points[i+1];
 
-  const middlePoint = { lat: lastPoint.lat, lng: latlng.lng };
+            const distance = p1.distanceTo(p2);
+            const targetHeading = getBearing(p1, p2);
 
-  const segment1 = L.polyline([lastPoint, middlePoint], {color: 'red', weight: 4}).addTo(map);
-  const segment2 = L.polyline([middlePoint, latlng], {color: 'red', weight: 4}).addTo(map);
+            // Изчисляване на завоя
+            let turnAngle = targetHeading - tempHeading;
+            if (turnAngle > 180) turnAngle -= 360;
+            if (turnAngle < -180) turnAngle += 360;
 
-  lines.push(segment1, segment2);
-  points.push(middlePoint);
-  points.push({lat: latlng.lat, lng: latlng.lng});
+            const turnTime = Math.abs(turnAngle) / DEGREES_PER_SECOND;
+            const driveTime = distance / METERS_PER_SECOND;
 
-  lastPoint = latlng;
-}
+            if (Math.abs(turnAngle) > 5) {
+                commands.push({ action: turnAngle > 0 ? "right" : "left", time: turnTime });
+            }
+            commands.push({ action: "forward", time: driveTime });
 
-function clearAll() {
-  lines.forEach(line => map.removeLayer(line));
-  map.eachLayer((layer) => {
-    if (layer instanceof L.Polyline || (layer instanceof L.CircleMarker && layer.options.color !== 'blue')) {
-        map.removeLayer(layer);
-    }
-  });
-  lines = [];
-  points = [];
-  lastPoint = null;
-}
+            tempHeading = targetHeading;
+        }
 
+        console.log("Изпращане на команди:", commands);
+        const res = await fetch("http://localhost:3000/save-path", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(commands)
+        });
+        if(res.ok) alert("Маршрутът е изпратен успешно!");
+    };
+
+    document.getElementById("eraseBtn").onclick = () => {
+        location.reload(); // Най-бързият начин да изчистим всичко
+    };
 </script>
-
 </body>
 </html>
