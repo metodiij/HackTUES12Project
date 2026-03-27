@@ -6,10 +6,15 @@ const map = L.map('map').setView([42.6977, 23.3219], 18);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 21 }).addTo(map);
 
 let points = [];
+let markers = []; // За да можем да ги трием
+let lines = [];   // За да можем да ги трием
 let lastPoint = null;
-let currentHeading = 0; // 0 = North
+let currentHeading = 0; 
 
-// Calculate Angle (Bearing) between two points
+// Свързване на бутоните от HTML
+document.getElementById('sendBtn').onclick = processAndSendPath;
+document.getElementById('eraseBtn').onclick = clearMap;
+
 function getBearing(p1, p2) {
     const lat1 = p1.lat * Math.PI / 180;
     const lat2 = p2.lat * Math.PI / 180;
@@ -20,15 +25,19 @@ function getBearing(p1, p2) {
     return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
 }
 
-// Handle Map Clicks
 map.on("click", function(e) {
     const latlng = e.latlng;
+    
     if (lastPoint) {
         const dist = latlng.distanceTo(lastPoint);
-        L.polyline([lastPoint, latlng], {color: '#f44336', weight: 5}).addTo(map)
-         .bindTooltip(`${dist.toFixed(1)}m`, {permanent: true, direction: 'center'});
+        let line = L.polyline([lastPoint, latlng], {color: '#f44336', weight: 5}).addTo(map)
+                    .bindTooltip(`${dist.toFixed(1)}m`, {permanent: true, direction: 'center'});
+        lines.push(line);
     }
-    L.circleMarker(latlng, {radius: 6, color: '#4CAF50', fillOpacity: 1}).addTo(map);
+    
+    let marker = L.circleMarker(latlng, {radius: 6, color: '#4CAF50', fillOpacity: 1}).addTo(map);
+    markers.push(marker);
+    
     points.push(latlng);
     lastPoint = latlng;
     updateStats();
@@ -38,6 +47,7 @@ function updateStats() {
     document.getElementById('stats').innerText = `Точки: ${points.length}`;
 }
 
+// ФУНКЦИЯ ЗА ПРАЩАНЕ
 async function processAndSendPath() {
     if (points.length < 2) return alert("Първо начертайте път!");
 
@@ -51,7 +61,6 @@ async function processAndSendPath() {
         const distance = p1.distanceTo(p2);
         const targetHeading = getBearing(p1, p2);
 
-        // Turn Logic
         let turnAngle = targetHeading - tempHeading;
         if (turnAngle > 180) turnAngle -= 360;
         if (turnAngle < -180) turnAngle += 360;
@@ -66,14 +75,32 @@ async function processAndSendPath() {
         tempHeading = targetHeading;
     }
 
+    // Изпращане към Flask сървъра
     try {
-        await ApiService.sendPath(commands);
-        alert("Маршрутът е изпратен успешно!");
+        const response = await fetch('http://localhost:5000/save-path', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(commands)
+        });
+        
+        if (response.ok) {
+            alert("Маршрутът е изпратен успешно!");
+        } else {
+            alert("Сървърна грешка!");
+        }
     } catch (e) {
-        alert("Грешка при изпращане.");
+        console.error(e);
+        alert("Няма връзка със сървъра (map.py работи ли?)");
     }
 }
 
+// ФУНКЦИЯ ЗА ИЗТРИВАНЕ
 function clearMap() {
-    location.reload();
+    points = [];
+    lastPoint = null;
+    markers.forEach(m => map.removeLayer(m));
+    lines.forEach(l => map.removeLayer(l));
+    markers = [];
+    lines = [];
+    updateStats();
 }

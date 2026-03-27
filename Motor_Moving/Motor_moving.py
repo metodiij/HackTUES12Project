@@ -1,6 +1,6 @@
 import requests
 import time
-from gpiozero import PWMOutputDevice
+from gpiozero import PWMOutputDevice                                                      
 
 # Motor Configuration (Pins 17, 27, 22, 16)
 front_left = PWMOutputDevice(17)
@@ -9,7 +9,7 @@ back_right = PWMOutputDevice(22)
 back_left = PWMOutputDevice(16)
 
 SPEED = 0.3
-API_URL = "http://localhost:5000/get-command"
+API_URL = "http://10.181.170.140:5000/get-command"
 
 def stop():
     front_left.value = front_right.value = back_left.value = back_right.value = 0
