@@ -3,7 +3,14 @@ const METERS_PER_SECOND = 0.25;
 const DEGREES_PER_SECOND = 45;   
 
 const map = L.map('map').setView([42.6977, 23.3219], 18);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 21 }).addTo(map);
+
+// Сателитен слой от Google Maps
+L.tileLayer('http://{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {
+    maxZoom: 30,
+    maxNativeZoom: 20,
+    subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
+    attribution: '© Google Maps'
+}).addTo(map);
 
 let points = [];
 let markers = []; // За да можем да ги трием
@@ -104,3 +111,41 @@ function clearMap() {
     lines = [];
     updateStats();
 }
+
+// Свързваме бутона за локация
+document.getElementById('locationBtn').onclick = getMyLocation;
+
+function getMyLocation() {
+    // Проверка дали браузърът поддържа геолокация
+    if (!navigator.geolocation) {
+        return alert("Браузърът ви не поддържа геолокация.");
+    }
+
+    // Извикване на локацията чрез Leaflet
+    map.locate({setView: true, maxZoom: 18});
+}
+
+// Когато локацията е намерена успешно
+map.on('locationfound', function(e) {
+    const radius = e.accuracy / 2;
+
+    // Слагаме син маркер на мястото на потребителя
+    L.marker(e.latlng).addTo(map)
+        .bindPopup("Вие сте тук (точност: " + radius.toFixed(0) + " метра)").openPopup();
+
+    // Слагаме кръг, показващ точността
+    L.circle(e.latlng, radius).addTo(map);
+    
+    // Опция: автоматично добави първата точка там, където е потребителят
+    // points.push(e.latlng);
+    // lastPoint = e.latlng;
+});
+
+// Ако потребителят откаже или има грешка
+map.on('locationerror', function(e) {
+    alert("Грешка при намиране на локацията: " + e.message);
+});
+
+window.onload = function() {
+    getMyLocation();
+};
